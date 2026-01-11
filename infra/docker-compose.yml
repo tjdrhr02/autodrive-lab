@@ -1,0 +1,16 @@
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: autodrive-lab-server
+    restart: unless-stopped
+    environment:
+      - PORT=${PORT:-8000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MODEL_VERSION=${MODEL_VERSION:-v0}
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    command: >
+      uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
+
