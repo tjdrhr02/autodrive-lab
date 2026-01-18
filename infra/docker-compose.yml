@@ -1,7 +1,7 @@
 services:
   server:
     build:
-      context: ./server
+      context: ../server
       dockerfile: Dockerfile
     container_name: autodrive-lab-server
     restart: unless-stopped
