@@ -1,7 +1,25 @@
 ## autodrive-lab (Day 1 템플릿)
 
 “PC(Mac)에서 돌아가는 **OpenCV 클라이언트** → **Docker로만 실행되는 FastAPI 추론 서버**”의 최소 뼈대 템플릿입니다.  
-1주차는 **실제 ML 모델 없이** 더미 추론으로도 끝까지 통신이 흐르도록 구성했습니다.
+1주차는 **실제 ML 모델 없이도** “배포 가능한 서버 서빙 품질”에 가까운 형태(설정/로그/헬스체크)를 갖추고, 더미 추론(규칙 기반)으로 끝까지 흐름이 동작하도록 구성했습니다.
+
+### 현재 아키텍처 (Day 1)
+
+```mermaid
+flowchart LR
+  C[PC Client (Python + OpenCV)\n- webcam\n- feature 추출\n- /infer 호출] -->|HTTP JSON| S[Docker Server (FastAPI + Uvicorn)\n- /health\n- /infer\n- stdout logs]
+```
+
+### 최종 목표 아키텍처 (개념도)
+
+> 이번 단계에서는 ROS/Kubernetes 등은 **구현하지 않습니다**. 아래는 방향성만 공유합니다.
+
+```mermaid
+flowchart LR
+  R[Robot/ROS Node] -->|telemetry/frames| G[Gateway/Edge]
+  G -->|HTTP/gRPC| CS[Cloud Serving\n(model runtime + observability)]
+  CS -->|action/steering| R
+```
 
 ### 레포 구조
 
@@ -55,6 +73,9 @@ LOG_LEVEL=INFO
 # 모델/서빙 버전 문자열(기본 v0)
 MODEL_VERSION=v0
 
+# 모델 런타임(기본 rule): rule | onnx
+MODEL_RUNTIME=rule
+
 # (클라이언트용) 서버 URL (기본 http://localhost:8000)
 SERVER_URL=http://localhost:8000
 ```
@@ -63,7 +84,7 @@ SERVER_URL=http://localhost:8000
 
 ---
 
-## 로컬 실행 (서버는 compose로만!)
+## 실행 방법 (서버는 Docker로만!)
 
 ### 1) 서버 실행 (Docker Compose)
 
@@ -74,7 +95,13 @@ make up
 ```
 
 - 성공하면 `http://localhost:${PORT}`(기본 `8000`)에서 서버가 뜹니다.
-- 서버는 요청마다 **request_id, latency_ms**를 stdout으로 출력합니다(컨테이너 로그로 확인).
+- 서버는 **요청마다** stdout 로그에 다음을 남깁니다:
+  - `request_id`
+  - `latency_ms`
+  - `action`
+  - `model_version`
+  - (추가로 `status_code`, `path`, `method`)
+- `docker compose ps`에서 Health 상태가 `healthy`로 바뀌는 것도 확인할 수 있습니다.
 
 ### 2) 서버 상태 확인
 
@@ -93,6 +120,35 @@ make curl-health
 ```bash
 make curl-infer
 ```
+
+---
+
+## API 스펙 요약
+
+### GET /health
+
+- **response**: `{"ok": true, "version": "<MODEL_VERSION>"}`
+
+### POST /infer
+
+- **request(JSON)**:
+  - `request_id`: uuid string
+  - `ts_ms`: epoch milliseconds
+  - `frame_meta`: `{w, h}`
+  - `features`: `[float, float, ...]`
+- **response(JSON)**:
+  - `action`: `TURN_LEFT | TURN_RIGHT | STRAIGHT`
+  - `steering`: -1.0 ~ 1.0
+  - `confidence`: 0.0 ~ 1.0
+  - `latency_ms`: int
+  - `model_version`: string
+
+### Day 1 더미(규칙 기반) 추론 로직
+
+- `features[0] > features[2]` → `TURN_LEFT`
+- `features[2] > features[0]` → `TURN_RIGHT`
+- otherwise → `STRAIGHT`
+- `steering = clamp(features[2] - features[0], -1.0, 1.0)`
 
 ---
 
@@ -157,10 +213,11 @@ SERVER_URL=http://localhost:8010 make client-run
 
 ## 다음 확장 아이디어 (2주차+)
 
-1주차에는 외부 서비스(Redis/DB)를 넣지 않습니다. 아래는 확장 체크포인트만 적어둡니다.
+1주차에는 외부 서비스(Redis/DB)를 넣지 않습니다. 아래는 확장 체크포인트(계획)만 적어둡니다.
 
 - **ONNXRuntime**: 더미 로직 대신 ONNX 모델 로딩/추론 추가
 - **GPU**: NVIDIA 환경에서는 CUDA 기반 이미지로 전환, Mac은 Metal(가능한 경우) 검토
 - **클라우드 배포**: 환경변수/헬스체크/로그/리소스 제한/리버스 프록시(예: Nginx) 점검
+- **ROS 연동(개념)**: 로봇/ROS 노드가 feature 또는 frame을 보내고, cloud serving이 action/steering을 반환
 
 자세한 내용은 `docs/architecture.md`, `docs/api.md`를 참고하세요.

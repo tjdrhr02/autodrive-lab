@@ -6,8 +6,8 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# 앱 소스 복사
-COPY app.py /app/app.py
+# 앱 소스 복사 (모듈 분리된 파일들 포함)
+COPY . /app
 
 ENV PORT=8000
 EXPOSE 8000
