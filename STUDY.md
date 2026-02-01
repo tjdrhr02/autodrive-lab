@@ -1,8 +1,25 @@
 ## STUDY.md
 
 ## 이번주는 여행중..
+# 
 
 이 문서는 `autodrive-lab` Day 1을 진행하면서 나왔던 질문/답변을 모아 둔 개인 학습 노트입니다.
+
+---
+
+## TL;DR (오늘 배운 핵심)
+
+- **Dockerfile vs Compose vs .env**
+  - Dockerfile: “이미지(실행 환경) 만드는 법”
+  - Compose: “그 이미지를 어떤 설정으로 실행할지”
+  - .env: “Compose에서 참조하는 값(포트/로그레벨/버전 등)”
+- **Compose 파일이 `infra/`에 있으면 상대경로 기준도 `infra/`**
+  - `build.context: ./server`는 `infra/server`를 찾게 됨 → 실제는 `../server`
+- **IDE의 `import ... 확인할 수 없습니다` 경고는 대부분 인터프리터 불일치**
+  - 실행은 되는데 경고만 뜨면, “Cursor가 보는 Python”과 “pip 설치한 Python”이 다를 확률이 높음
+- **서빙 품질 체크리스트(최소)**
+  - 요청당 latency 측정, request_id로 추적 가능, 에러 시 status_code + 로그
+  - health endpoint + (가능하면) 컨테이너 healthcheck
 
 ---
 
@@ -139,4 +156,117 @@ EXPOSE 8000                               # 문서/메타데이터용(포트 오
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"] # 기본 실행 명령(compose command가 덮을 수 있음)
 ```
+
+---
+
+## Q6) Compose 빌드 컨텍스트 경로가 왜 깨졌지? (`build.context`)
+
+### 증상
+
+- `docker compose -f infra/docker-compose.yml up --build` 했는데 build context 경로가 없다고 실패
+
+### 원인
+
+- Compose는 **`-f`로 지정한 compose 파일 위치 기준**으로 상대경로를 해석한다.
+- 그래서 `infra/docker-compose.yml` 안에서 `context: ./server`는 `infra/server`를 의미한다.
+- 하지만 실제 서버 코드는 `autodrive-lab/server`에 있다.
+
+### 해결
+
+- `infra/docker-compose.yml`에서:
+  - `build.context: ../server`로 수정
+
+### 체크
+
+```bash
+docker compose -f infra/docker-compose.yml config
+```
+
+위 명령은 “변수 치환이 끝난 최종 compose 설정”을 보여줘서 경로/포트/환경변수가 맞는지 확인하기 좋다.
+
+---
+
+## Q7) `docker: No such file or directory`는 왜 떴지?
+
+### 원인 후보
+
+- Docker Desktop이 설치되지 않았거나
+- Docker Desktop이 실행 중이 아니거나
+- `docker` CLI가 PATH에 잡히지 않은 터미널 세션(터미널 재시작으로 해결되는 경우도 있음)
+
+### 체크 커맨드
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+## Q8) `가져오기 "cv2"을(를) 확인할 수 없습니다` (또는 fastapi/pydantic) 경고는 왜 뜨나?
+
+### 핵심 결론
+
+- 이 경고는 보통 **실행 에러가 아니라 IDE의 정적 분석 경고**다.
+- “실행은 되는데 경고만 남아있다”면 거의 확실히 **IDE가 보는 파이썬 인터프리터와, pip 설치한 파이썬이 다르다.**
+
+### 원인 패턴 3가지
+
+- **인터프리터 불일치**
+  - `make client-install`은 터미널의 `python3`에 설치
+  - Cursor는 별도의 인터프리터를 선택해 분석
+- **user site 설치**
+  - 권한 문제로 `Defaulting to user installation...`가 발생하면 user site에 설치될 수 있음
+  - IDE/인터프리터에 따라 그 경로를 분석 대상에서 제외할 수 있음
+- **바이너리 모듈 특성**
+  - `cv2`처럼 C 확장 모듈은 분석 설정이 조금만 어긋나도 경고가 뜨기 쉬움
+
+### 확실한 진단(터미널)
+
+```bash
+python3 -c "import sys; print(sys.executable)"
+python3 -c "import cv2; print(cv2.__file__)"
+```
+
+### 해결(IDE)
+
+- Cursor → Command Palette → `Python: Select Interpreter`
+- 위 `sys.executable`과 **동일한** 파이썬을 선택
+- 필요 시 `Reload Window`로 재분석 트리거
+
+---
+
+## Q9) 클라이언트 `numpy` 설치가 왜 실패했지?
+
+### 관찰된 상황
+
+- `numpy==2.1.3` 고정 설치에서 “해당 버전 없음” 오류
+
+### 원인
+
+- numpy 휠은 **파이썬 버전/플랫폼별로 제공 범위가 다르다.**
+- 로컬 파이썬이 구버전이면(예: 3.8/3.9 등) 최신 numpy 핀은 설치 불가능할 수 있다.
+
+### 대응 전략
+
+- **(권장)** 파이썬 버전을 최신(예: 3.11)로 맞추고 venv에 설치
+- **(현실적인 Day 1)** requirements에서 **python_version 조건부 핀**으로 분기(이미 적용됨)
+
+---
+
+## Q10) “배포 가능한 서버 서빙 품질”이란 최소 어디까지?
+
+### 최소 체크리스트(개인 기준)
+
+- **요청 단위 관측 가능성**
+  - request_id로 한 요청을 끝까지 추적 가능
+  - latency_ms 측정(서버 처리시간 또는 request 전체 처리시간)
+- **에러 처리**
+  - 실패 시 적절한 HTTP status code
+  - 에러 로그에 request_id + 원인(traceback) 포함
+- **설정 분리**
+  - 코드 수정 없이 환경변수로 LOG_LEVEL/MODEL_VERSION/PORT 등 변경 가능
+- **헬스/준비 상태**
+  - `/health` 같은 endpoint 제공
+  - 컨테이너 healthcheck로 “살아있음”이 눈에 보이게 구성
 
