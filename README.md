@@ -76,6 +76,9 @@ MODEL_VERSION=v0
 # 모델 런타임(기본 rule): rule | onnx
 MODEL_RUNTIME=rule
 
+# (서버) 최대 요청 바디 크기(바이트). 기본 1MB
+MAX_BODY_BYTES=1048576
+
 # (클라이언트용) 서버 URL (기본 http://localhost:8000)
 SERVER_URL=http://localhost:8000
 ```
@@ -102,6 +105,35 @@ make up
   - `model_version`
   - (추가로 `status_code`, `path`, `method`)
 - `docker compose ps`에서 Health 상태가 `healthy`로 바뀌는 것도 확인할 수 있습니다.
+
+---
+
+## 배포 전제 “운영 기본기” (왜/무엇을 했나)
+
+### 이미지 하드닝
+
+- **non-root 실행**: 컨테이너 내부에서 `app` 유저로 실행하도록 Dockerfile을 구성했습니다.
+- **런타임 기본값**:
+  - `PYTHONUNBUFFERED=1`: stdout 로그가 버퍼링되지 않아 컨테이너 로그에서 즉시 보임
+  - `PYTHONDONTWRITEBYTECODE=1`: `.pyc` 생성 억제(컨테이너 레이어/권한 이슈 감소)
+
+### 빌드 최적화
+
+- `requirements.txt`를 먼저 COPY → 설치하여 **레이어 캐시**가 잘 타도록 구성
+- `server/.dockerignore`로 불필요한 파일이 빌드 컨텍스트에 들어가지 않게 함(속도/보안/재현성 개선)
+
+### 프로세스/타임아웃 (현재와 다음 단계)
+
+- 현재는 **단일 uvicorn 프로세스**로 충분한 Day 1 구조입니다.
+- `infra/docker-compose.yml`에서 `uvicorn --timeout-keep-alive 5`로 keep-alive를 보수적으로 설정했습니다.
+
+#### 언제 gunicorn(+uvicorn workers)로 갈까?
+
+- **CPU 코어를 더 쓰고 싶을 때**: 단일 프로세스가 한 코어만 충분히 못 쓰는 상황
+- **동시 요청 처리량을 올리고 싶을 때**: 워커 수로 병렬 처리 확대(단, 메모리 증가)
+- **장시간/불안정한 요청에 격리 효과가 필요할 때**: 워커 단위로 장애 격리
+
+Day 1에서는 “동작/관측/설정”을 우선하고, Day 2~에 부하/지연 측정을 하면서 워커 전략을 결정하는 흐름을 추천합니다.
 
 ### 2) 서버 상태 확인
 

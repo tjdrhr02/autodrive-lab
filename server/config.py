@@ -18,12 +18,14 @@ class Settings:
     - LOG_LEVEL: DEBUG/INFO/WARNING/ERROR
     - MODEL_VERSION: 응답/로그에 포함할 모델(서빙) 버전 문자열
     - MODEL_RUNTIME: rule|onnx (기본 rule)
+    - MAX_BODY_BYTES: 서버가 허용할 요청 바디 최대 크기 (기본 1MB)
     """
 
     port: int
     log_level: str
     model_version: str
     model_runtime: str
+    max_body_bytes: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -31,16 +33,23 @@ class Settings:
         log_level = (_get_env("LOG_LEVEL", "INFO") or "INFO").upper()
         model_version = _get_env("MODEL_VERSION", "v0") or "v0"
         model_runtime = (_get_env("MODEL_RUNTIME", "rule") or "rule").lower()
+        max_body_s = _get_env("MAX_BODY_BYTES", "1048576")
 
         try:
             port = int(port_s) if port_s is not None else 8000
         except ValueError:
             port = 8000
 
+        try:
+            max_body_bytes = int(max_body_s) if max_body_s is not None else 1048576
+        except ValueError:
+            max_body_bytes = 1048576
+
         return cls(
             port=port,
             log_level=log_level,
             model_version=model_version,
             model_runtime=model_runtime,
+            max_body_bytes=max_body_bytes,
         )
 

@@ -70,6 +70,29 @@ async def request_access_log(request: Request, call_next):
     # Starlette는 request.body()를 캐시하므로 이후 FastAPI 파싱에 영향이 적다.
     try:
         body = await request.body()
+        if len(body) > settings.max_body_bytes:
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            logger.warning(
+                {
+                    "request_id": request_id,
+                    "latency_ms": latency_ms,
+                    "action": "REJECT_TOO_LARGE",
+                    "model_version": settings.model_version,
+                    "status_code": 413,
+                    "path": request.url.path,
+                    "method": request.method,
+                    "max_body_bytes": settings.max_body_bytes,
+                    "body_bytes": len(body),
+                }
+            )
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": "Request body too large",
+                    "request_id": request_id,
+                    "max_body_bytes": settings.max_body_bytes,
+                },
+            )
         parsed = _safe_json(body)
         if isinstance(parsed, dict):
             rid = parsed.get("request_id")

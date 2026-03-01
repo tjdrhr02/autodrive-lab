@@ -10,10 +10,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MODEL_VERSION=${MODEL_VERSION:-v0}
       - MODEL_RUNTIME=${MODEL_RUNTIME:-rule}
+      - MAX_BODY_BYTES=${MAX_BODY_BYTES:-1048576}
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     command: >
-      uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
+      uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --timeout-keep-alive 5
     healthcheck:
       test: ["CMD", "python", "-c", "import os,urllib.request,urllib.error; p=os.getenv('PORT','8000'); u=f'http://127.0.0.1:{p}/health'; urllib.request.urlopen(u, timeout=2).read()"]
       interval: 10s
